@@ -1,4 +1,4 @@
-import { LogEntry, Transaction } from "../types";
+import { LogEntry, Transaction, MerchantRequest } from "../types";
 
 // Mock Constants
 export const ROUTER_ADDRESS = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D";
@@ -84,5 +84,26 @@ export const authorizeStripePayment = async (amount: number, merchantId: string)
   return {
     clientSecret: `pi_${generateId()}_secret_${generateId()}`,
     id: id
+  };
+};
+
+// New Detection Simulations
+export const detectMerchantSignal = async (mode: 'NFC' | 'QR'): Promise<MerchantRequest> => {
+  await simulateDelay(2000); // Wait for "scan"
+  
+  const merchants = [
+    { name: 'Starbucks Coffee', category: 'Food & Drink', avg: 12.50 },
+    { name: 'Uber Technologies', category: 'Transport', avg: 24.00 },
+    { name: 'Whole Foods Market', category: 'Grocery', avg: 85.00 },
+    { name: 'Apple Store', category: 'Electronics', avg: 299.00 }
+  ];
+
+  const merchant = merchants[Math.floor(Math.random() * merchants.length)];
+  
+  return {
+    id: `merch_${generateId()}`,
+    name: merchant.name,
+    category: merchant.category,
+    amountUSD: Number((merchant.avg + (Math.random() * 10 - 5)).toFixed(2))
   };
 };

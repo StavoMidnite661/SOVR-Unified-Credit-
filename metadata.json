@@ -1,5 +1,7 @@
 {
   "name": "SOVR Unified Credit System",
   "description": "A production-grade React application implementing the SOVR Credit Terminal, Normalization Layer, and USD Gateway with integrated AI assistance.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [
+    "camera"
+  ]
 }

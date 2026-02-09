@@ -1,74 +1,34 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { LayoutGrid, CreditCard, ArrowLeftRight, History, Wallet, Sparkles, ExternalLink, CheckCircle2, Clock, XCircle, AlertCircle, Loader2 } from 'lucide-react';
-import { AppTab, WalletState, LogEntry, Transaction } from './types';
+import React, { useState, useEffect } from 'react';
+import { LayoutGrid, CreditCard, ArrowLeftRight, History, Wallet, Sparkles, ExternalLink, CheckCircle2, Clock, XCircle, AlertCircle, Loader2, Database, TrendingUp, TrendingDown, ShieldCheck, Activity, Zap } from 'lucide-react';
+import { AppTab, WalletState, LogEntry, Transaction, TBAccount, MerchantRequest } from './types';
 import { createLog, processNormalization, authorizeStripePayment, simulateDelay, checkTransactionStatus, registerTransaction } from './services/mockBackend';
+import { tigerBeetle } from './services/tigerBeetle';
+import { performProtocolSwap, performNormalization, performPayment } from './services/productionMiddleware';
 import CreditTerminal from './components/CreditTerminal';
 import NormalizationLayer from './components/NormalizationLayer';
-import USDGateway from './components/USDGateway';
+import SovrPay from './components/USDGateway';
 import LogConsole from './components/LogConsole';
 import AIAssistant from './components/AIAssistant';
 import ManifestoModal from './components/ManifestoModal';
 
-// Helper component for smooth number transitions
-const AnimatedNumber = ({ value, prefix = '', className = '' }: { value: number; prefix?: string; className?: string }) => {
-  const [display, setDisplay] = useState(value);
-
-  React.useEffect(() => {
-    let startTimestamp: number;
-    const startValue = display;
-    const endValue = value;
-    const duration = 800; // 0.8s animation
-
-    if (startValue === endValue) return;
-
-    const step = (timestamp: number) => {
-      if (!startTimestamp) startTimestamp = timestamp;
-      const progress = Math.min((timestamp - startTimestamp) / duration, 1);
-      
-      // easeOutExpo
-      const ease = progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress);
-      
-      const current = startValue + (endValue - startValue) * ease;
-      setDisplay(current);
-
-      if (progress < 1) {
-        requestAnimationFrame(step);
-      }
-    };
-
-    requestAnimationFrame(step);
-  }, [value]);
-
-  return <span className={className}>{prefix}{display.toFixed(2)}</span>;
-};
-
 const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<AppTab>(AppTab.TERMINAL);
+  const [activeTab, setActiveTab] = useState<AppTab>(AppTab.PAY);
   const [isLoading, setIsLoading] = useState(false);
   const [showManifesto, setShowManifesto] = useState(false);
   
   // App State
   const [logs, setLogs] = useState<LogEntry[]>([
-    createLog('SYSTEM', 'SOVR Protocol v2.0 "Aurora" Initialized'),
-    createLog('CHAIN', 'Connected to Base Chain RPC')
+    createLog('SYSTEM', 'TigerBeetle Node Initialized [Cluster: 0x1]'),
+    createLog('TIGERBEETLE', 'Standard Chart of Accounts Deployed', 'success')
   ]);
 
-  const [transactions, setTransactions] = useState<Transaction[]>([
-    {
-      id: 'tx_init_01',
-      type: 'SWAP',
-      description: 'Initial Liquidity Provision',
-      amount: '1000.00 SOVR',
-      status: 'COMPLETED',
-      hash: '0x71...9A23',
-      timestamp: Date.now() - 10000000
-    }
-  ]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [tbAccounts, setTbAccounts] = useState<TBAccount[]>(tigerBeetle.getAllAccounts());
   
   const [wallet, setWallet] = useState<WalletState>({
     address: '0x71C...9A23',
     sovrBalance: 1500.00,
-    sfiatBalance: 0.00, // This is usdSOVR
+    sfiatBalance: 0.00, 
     usdCreditBalance: 0.00,
     isConnected: false
   });
@@ -86,188 +46,138 @@ const App: React.FC = () => {
     addLog(createLog('SYSTEM', 'Wallet connected: 0x71C...9A23', 'success'));
   };
 
-  // --- Polling Mechanism for Pending Transactions ---
+  // Polling for Pending Transactions & TB State Sync
   useEffect(() => {
     const pollInterval = setInterval(async () => {
       const pendingTxs = transactions.filter(tx => tx.status === 'PENDING');
       
-      if (pendingTxs.length === 0) return;
+      if (pendingTxs.length > 0) {
+        const updatedTransactions = [...transactions];
+        let updatesMade = false;
 
-      let updatesMade = false;
-      const updatedTransactions = [...transactions];
-
-      for (const tx of pendingTxs) {
-        try {
-          // Check backend for status update
-          const newStatus = await checkTransactionStatus(tx.hash);
-          
-          if (newStatus === 'COMPLETED') {
-            const index = updatedTransactions.findIndex(t => t.id === tx.id);
-            if (index !== -1) {
-              updatedTransactions[index] = { ...updatedTransactions[index], status: 'COMPLETED' };
-              updatesMade = true;
-              
-              // Add confirmation log
-              let source: LogEntry['source'] = 'CHAIN';
-              if (tx.type === 'NORMALIZE') source = 'NORM';
-              if (tx.type === 'PAYMENT') source = 'STRIPE';
-              
-              addLog(createLog(source, `Transaction Confirmed: ${tx.description}`, 'success'));
+        for (const tx of pendingTxs) {
+          try {
+            const newStatus = await checkTransactionStatus(tx.hash);
+            if (newStatus === 'COMPLETED') {
+              const idx = updatedTransactions.findIndex(t => t.id === tx.id);
+              if (idx !== -1) {
+                updatedTransactions[idx] = { ...updatedTransactions[idx], status: 'COMPLETED' };
+                updatesMade = true;
+                addLog(createLog('TIGERBEETLE', `Transfer Committed: ${tx.tbTransferId}`, 'success'));
+              }
             }
+          } catch (e) {
+            console.error("Poll error:", e);
           }
-        } catch (error) {
-           console.error("Polling error for tx:", tx.id);
         }
+        if (updatesMade) setTransactions(updatedTransactions);
       }
 
-      if (updatesMade) {
-        setTransactions(updatedTransactions);
-      }
-
-    }, 2000); // Poll every 2 seconds
+      // Sync TigerBeetle Accounts UI
+      setTbAccounts(tigerBeetle.getAllAccounts());
+    }, 2000);
 
     return () => clearInterval(pollInterval);
   }, [transactions]);
 
+  // --- ATOMIC PROTOCOL LOGIC (V2) ---
+  const handleAtomicPayment = async (merchant: MerchantRequest, sovrCost: number): Promise<string> => {
+    setIsLoading(true);
+    const txId = `tx_atomic_${Date.now()}`;
+    const sovrAmount = sovrCost;
+    const usdAmount = merchant.amountUSD;
 
-  // Actions
+    try {
+      if (wallet.sovrBalance < sovrAmount) throw new Error("Insufficient SOVR Balance");
+
+      // 1. Swap SOVR -> sFIAT
+      addLog(createLog('CHAIN', `Auto-Swap: ${sovrAmount.toFixed(4)} SOVR -> ${usdAmount.toFixed(2)} usdSOVR`, 'info'));
+      await simulateDelay(800);
+      const swapTxId = await performProtocolSwap(usdAmount, true); // True = SOVR to Fiat
+
+      // 2. Normalize sFIAT -> Credit
+      addLog(createLog('NORM', `Auto-Normalize: ${usdAmount.toFixed(2)} usdSOVR -> Credit`, 'info'));
+      await simulateDelay(600);
+      const normTxId = await performNormalization(usdAmount);
+
+      // 3. Pay Merchant
+      addLog(createLog('STRIPE', `Settling to ${merchant.name}...`, 'info'));
+      const stripeRes = await authorizeStripePayment(usdAmount, merchant.name);
+      const payTxId = await performPayment(usdAmount, merchant.name);
+
+      // Update Wallet (Subtract SOVR, USD passes through)
+      setWallet(prev => ({
+        ...prev,
+        sovrBalance: prev.sovrBalance - sovrAmount
+      }));
+
+      addTransaction({
+        id: txId,
+        type: 'ATOMIC_PAY',
+        description: `Pay ${merchant.name}`,
+        amount: `-${sovrAmount.toFixed(2)} SOVR`,
+        status: 'PENDING',
+        hash: stripeRes.id,
+        tbTransferId: payTxId,
+        timestamp: Date.now(),
+        method: 'NFC'
+      });
+
+      addLog(createLog('SYSTEM', `Atomic Protocol Execution Complete.`, 'success'));
+      setIsLoading(false);
+      return stripeRes.id;
+
+    } catch (e: any) {
+      addLog(createLog('SYSTEM', `Atomic Fail: ${e.message}`, 'error'));
+      setIsLoading(false);
+      throw e;
+    }
+  };
+
+  // --- LEGACY MANUAL ACTIONS ---
   const handleSwap = async (amountIn: number, isSovrToFiat: boolean) => {
     setIsLoading(true);
-    const fromToken = isSovrToFiat ? 'SOVR' : 'usdSOVR';
-    const toToken = isSovrToFiat ? 'usdSOVR' : 'SOVR';
+    addLog(createLog('CHAIN', `Processing Swap...`, 'info'));
     
-    // Simulate signing delay
-    addLog(createLog('CHAIN', `Signing swap: ${amountIn} ${fromToken}...`, 'info'));
-    await simulateDelay(1000);
+    try {
+      await simulateDelay(1000);
+      const amountOut = isSovrToFiat ? amountIn * 2.5 : amountIn / 2.5;
+      
+      if (isSovrToFiat && wallet.sovrBalance < amountIn) throw new Error("Insufficient SOVR");
+      if (!isSovrToFiat && wallet.sfiatBalance < amountIn) throw new Error("Insufficient usdSOVR");
 
-    // Initial Checks
-    if (isSovrToFiat && wallet.sovrBalance < amountIn) {
-        addLog(createLog('CHAIN', 'Swap rejected: Insufficient balance', 'error'));
-        setIsLoading(false);
-        return;
-    }
-    if (!isSovrToFiat && wallet.sfiatBalance < amountIn) {
-        addLog(createLog('CHAIN', 'Swap rejected: Insufficient balance', 'error'));
-        setIsLoading(false);
-        return;
-    }
+      const transferId = await performProtocolSwap(amountOut, isSovrToFiat);
+      const txHash = '0x' + Math.random().toString(16).substr(2, 40);
+      registerTransaction(txHash);
 
-    // Determine values
-    const amountOut = isSovrToFiat ? amountIn * 2.5 : amountIn / 2.5;
-    
-    // Generate Hash & Register for Polling
-    const txHash = '0x' + Math.random().toString(16).substr(2, 40);
-    registerTransaction(txHash);
+      if (isSovrToFiat) {
+        setWallet(prev => ({ ...prev, sovrBalance: prev.sovrBalance - amountIn, sfiatBalance: prev.sfiatBalance + amountOut }));
+      } else {
+        setWallet(prev => ({ ...prev, sfiatBalance: prev.sfiatBalance - amountIn, sovrBalance: prev.sovrBalance + amountOut }));
+      }
 
-    // Optimistic UI Update (Balances)
-    if (isSovrToFiat) {
-        setWallet(prev => ({
-            ...prev,
-            sovrBalance: prev.sovrBalance - amountIn,
-            sfiatBalance: prev.sfiatBalance + amountOut
-        }));
-    } else {
-         setWallet(prev => ({
-            ...prev,
-            sfiatBalance: prev.sfiatBalance - amountIn,
-            sovrBalance: prev.sovrBalance + amountOut
-        }));
-    }
-
-    // Add Pending Transaction
-    addTransaction({
+      addTransaction({
         id: `tx_${Date.now()}`,
         type: 'SWAP',
-        description: `Swap ${fromToken} to ${toToken}`,
-        amount: `+${amountOut.toFixed(2)} ${toToken}`,
+        description: `Swap for ${isSovrToFiat ? 'usdSOVR' : 'SOVR'}`,
+        amount: `${isSovrToFiat ? '+' : '-'}${amountOut.toFixed(2)} ${isSovrToFiat ? 'usdSOVR' : 'SOVR'}`,
         status: 'PENDING',
         hash: txHash,
+        tbTransferId: transferId,
         timestamp: Date.now()
-    });
+      });
 
-    addLog(createLog('CHAIN', `Transaction Broadcasted: ${txHash.substring(0, 10)}...`, 'warning'));
-    setIsLoading(false);
-  };
-
-  const handleNormalize = async (amount: number) => {
-    setIsLoading(true);
-    addLog(createLog('NORM', `Requesting normalization for ${amount.toFixed(2)} usdSOVR...`, 'info'));
-
-    try {
-        // Validation
-        if (amount > wallet.sfiatBalance) throw new Error("Insufficient Balance");
-
-        // Optimistic Balance Update
-        setWallet(prev => ({ ...prev, sfiatBalance: prev.sfiatBalance - amount }));
-        
-        // Call backend to start process
-        const result = await processNormalization(amount, wallet.address);
-        
-        // Update credit balance immediately for UX (or we could wait for polling)
-        // For this demo, we update credit immediately but keep transaction pending on ledger
-        setWallet(prev => ({ ...prev, usdCreditBalance: prev.usdCreditBalance + result.usdValue }));
-        
-        addLog(createLog('SYSTEM', `Credits Issued (Optimistic). Waiting for finality...`, 'info'));
-        
-        addTransaction({
-            id: `tx_${Date.now()}`,
-            type: 'NORMALIZE',
-            description: 'Normalize usdSOVR to Credit',
-            amount: `$${amount.toFixed(2)} USD`,
-            status: 'PENDING',
-            hash: result.attestationId,
-            timestamp: Date.now()
-        });
-    } catch (e) {
-        addLog(createLog('NORM', 'Normalization failed', 'error'));
-    }
-
-    setIsLoading(false);
-  };
-
-  const handleStripeAuth = async (amount: number, merchantId: string) => {
-    setIsLoading(true);
-    addLog(createLog('STRIPE', `Creating PaymentIntent for ${merchantId}...`, 'info'));
-    
-    try {
-        const result = await authorizeStripePayment(amount, merchantId);
-        
-        // If we get here, the "API call" was successful, but settlements take time
-        addLog(createLog('STRIPE', `Payment Authorized. ID: ${result.id}`, 'info'));
-        setWallet(prev => ({ ...prev, usdCreditBalance: prev.usdCreditBalance - amount }));
-        
-        addTransaction({
-            id: `tx_${Date.now()}`,
-            type: 'PAYMENT',
-            description: `Payment to ${merchantId}`,
-            amount: `-$${amount.toFixed(2)} USD`,
-            status: 'PENDING', // Gateway settlements are pending
-            hash: result.id,
-            timestamp: Date.now()
-        });
+      addLog(createLog('TIGERBEETLE', `Pending Transfer Batch: ${transferId}`, 'warning'));
     } catch (e: any) {
-        addLog(createLog('STRIPE', `Authorization failed: ${e.message}`, 'error'));
-        
-        addTransaction({
-            id: `tx_${Date.now()}`,
-            type: 'PAYMENT',
-            description: `Payment to ${merchantId}`,
-            amount: `-$${amount.toFixed(2)} USD`,
-            status: 'FAILED',
-            hash: 'pi_failed_' + Math.random().toString(36).substr(2, 5),
-            timestamp: Date.now()
-        });
-        
-        throw e;
-    } finally {
-        setIsLoading(false);
+      addLog(createLog('CHAIN', `Swap failed: ${e.message}`, 'error'));
     }
+    setIsLoading(false);
   };
 
   const tabs = [
-    { id: AppTab.TERMINAL, icon: ArrowLeftRight, label: 'Terminal', desc: 'Swap' },
-    { id: AppTab.LEDGER, icon: LayoutGrid, label: 'Ledger', desc: 'Mint' },
-    { id: AppTab.GATEWAY, icon: CreditCard, label: 'Gateway', desc: 'Pay' },
+    { id: AppTab.PAY, icon: Zap, label: 'Pay', desc: 'Protocol V2' },
+    { id: AppTab.TERMINAL, icon: ArrowLeftRight, label: 'Terminal', desc: 'Manual Swap' },
+    { id: AppTab.LEDGER, icon: Database, label: 'Ledger', desc: 'TigerBeetle' },
     { id: AppTab.HISTORY, icon: History, label: 'History', desc: 'Logs' },
   ];
 
@@ -277,165 +187,136 @@ const App: React.FC = () => {
       <ManifestoModal isOpen={showManifesto} onClose={() => setShowManifesto(false)} />
 
       {/* --- Aurora Background --- */}
-      <div
-        className="absolute inset-0 z-0 pointer-events-none fixed"
-        style={{
-          background: "radial-gradient(ellipse 80% 60% at 50% 0%, rgba(120, 180, 255, 0.15), transparent 70%), #000000",
-        }}
-      />
-      {/* Floating Particles/Stars */}
-      <div className="absolute top-20 left-10 w-1 h-1 bg-white/20 rounded-full animate-float"></div>
-      <div className="absolute top-40 right-20 w-2 h-2 bg-blue-400/10 rounded-full animate-float-delayed"></div>
+      <div className="absolute inset-0 z-0 pointer-events-none fixed" style={{ background: "radial-gradient(ellipse 80% 60% at 50% 0%, rgba(120, 180, 255, 0.15), transparent 70%), #000000" }} />
       
       {/* Top Navbar */}
       <header className="relative z-50 h-20 flex items-center justify-between px-6 lg:px-12 border-b border-white/5 bg-black/20 backdrop-blur-md sticky top-0 transition-all duration-300">
-        <div 
-          className="flex items-center gap-3 group cursor-pointer"
-          onClick={() => setShowManifesto(true)}
-        >
-          <div className="relative group-hover:scale-105 transition-transform duration-300">
+        <div className="flex items-center gap-3 group cursor-pointer" onClick={() => setShowManifesto(true)}>
+          <div className="relative">
             <div className="absolute -inset-1 bg-gradient-to-r from-sovr-primary to-sovr-secondary rounded-lg blur opacity-40 animate-pulse-slow"></div>
             <div className="relative w-10 h-10 bg-black border border-white/10 rounded-lg flex items-center justify-center font-bold text-sovr-text">
-              <Sparkles className="w-5 h-5 text-sovr-primary group-hover:rotate-12 transition-transform duration-500" />
+              <Sparkles className="w-5 h-5 text-sovr-primary" />
             </div>
           </div>
           <div className="flex flex-col">
-            <h1 className="font-bold text-lg tracking-wide text-white group-hover:text-sovr-primary transition-colors duration-300">SOVR <span className="text-sovr-primary/80 font-normal">Protocol</span></h1>
-            <span className="text-[10px] text-sovr-muted uppercase tracking-[0.2em]">Unified Credit System</span>
+            <h1 className="font-bold text-lg text-white">SOVR <span className="text-sovr-primary/80 font-normal">Protocol</span></h1>
+            <span className="text-[10px] text-sovr-muted uppercase tracking-[0.2em]">Atomic V2 Enabled</span>
           </div>
         </div>
 
-        <div className="hidden md:flex items-center gap-8 text-sm">
-           <div className="flex flex-col items-end group cursor-default">
-             <span className="text-[10px] text-sovr-muted uppercase tracking-wider group-hover:text-sovr-primary transition-colors">SOVR Price</span>
-             <span className="font-mono text-white text-base shadow-white drop-shadow-[0_0_10px_rgba(255,255,255,0.2)] group-hover:scale-110 origin-right transition-transform duration-300">$2.50</span>
+        <div className="flex items-center gap-6">
+           <div className="hidden md:flex flex-col items-end">
+             <span className="text-[10px] text-sovr-muted uppercase">TB Sync Status</span>
+             <span className="font-mono text-sovr-success text-xs flex items-center gap-1">
+               <div className="w-1 h-1 bg-sovr-success rounded-full animate-pulse"></div> 0.2ms Latency
+             </span>
            </div>
-           <div className="h-8 w-px bg-white/10"></div>
-           <div className="flex flex-col items-end group cursor-default">
-             <span className="text-[10px] text-sovr-muted uppercase tracking-wider group-hover:text-sovr-success transition-colors">Network Gas</span>
-             <span className="font-mono text-sovr-success group-hover:scale-110 origin-right transition-transform duration-300">0.001 Gwei</span>
-           </div>
-        </div>
-
-        <div>
-          {!wallet.isConnected ? (
-            <button 
-              onClick={connectWallet}
-              className="relative group overflow-hidden px-6 py-2.5 rounded-full hover:scale-105 transition-transform duration-300"
-            >
-              <div className="absolute inset-0 bg-gradient-to-r from-sovr-primary to-sovr-secondary opacity-20 group-hover:opacity-30 transition-opacity duration-300"></div>
-              <div className="absolute inset-0 border border-white/10 rounded-full"></div>
-              <span className="relative text-sm font-medium text-sovr-primary group-hover:text-white transition-colors">Connect Wallet</span>
-            </button>
-          ) : (
-            <div className="flex items-center gap-3 glass-panel px-4 py-2 rounded-full hover:border-sovr-primary/30 transition-all cursor-pointer group hover:scale-[1.02] active:scale-[0.98]">
-               <div className="relative">
-                 <div className="absolute inset-0 bg-emerald-500 rounded-full blur-[2px] opacity-50 animate-pulse"></div>
-                 <div className="w-2 h-2 bg-emerald-400 rounded-full relative z-10"></div>
-               </div>
+           {!wallet.isConnected ? (
+             <button onClick={connectWallet} className="glass-panel px-6 py-2 rounded-full text-sm font-medium text-sovr-primary border-sovr-primary/20 hover:border-sovr-primary/50 transition-all">
+               Connect Node
+             </button>
+           ) : (
+             <div className="glass-panel px-4 py-2 rounded-full flex items-center gap-3 group hover:border-sovr-primary/40 transition-all cursor-pointer">
+               <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></div>
                <span className="font-mono text-xs text-sovr-muted group-hover:text-white transition-colors">{wallet.address}</span>
-            </div>
-          )}
+             </div>
+           )}
         </div>
       </header>
 
       <main className="relative z-40 container mx-auto p-4 md:p-6 lg:p-8 grid grid-cols-1 lg:grid-cols-12 gap-8 lg:h-[calc(100vh-5rem)] h-auto pb-32 lg:pb-6">
         
-        {/* Left: Navigation & Stats - HIDDEN ON MOBILE */}
-        <aside className="lg:col-span-3 hidden lg:flex flex-col gap-6 animate-in slide-in-from-left-4 duration-500 order-2 lg:order-1">
+        {/* Desktop Sidebar Navigation */}
+        <aside className="lg:col-span-3 hidden lg:flex flex-col gap-6 order-2 lg:order-1 animate-in slide-in-from-left-4 duration-500">
            <nav className="flex flex-col gap-2">
              {tabs.map((item) => (
-               <button
-                 key={item.id}
-                 onClick={() => setActiveTab(item.id)}
-                 className={`flex items-start gap-4 px-5 py-4 rounded-xl text-left transition-all duration-300 border group ${
-                   activeTab === item.id 
-                     ? 'glass-panel border-sovr-primary/30 bg-sovr-primary/5 shadow-[0_0_20px_-5px_rgba(56,189,248,0.1)] translate-x-2' 
-                     : 'border-transparent hover:bg-white/5 text-sovr-muted hover:translate-x-1'
-                 }`}
+               <button key={item.id} onClick={() => setActiveTab(item.id)}
+                 className={`flex items-start gap-4 px-5 py-4 rounded-xl text-left transition-all border group ${activeTab === item.id ? 'glass-panel border-sovr-primary/30 bg-sovr-primary/5 shadow-lg translate-x-1' : 'border-transparent hover:bg-white/5 text-sovr-muted hover:translate-x-1'}`}
                >
-                 <div className={`mt-1 p-2 rounded-lg transition-colors duration-300 ${activeTab === item.id ? 'bg-sovr-primary/20 text-sovr-primary' : 'bg-white/5 text-sovr-muted group-hover:text-white'}`}>
-                   <item.icon className="w-4 h-4" />
-                 </div>
+                 <item.icon className={`w-4 h-4 mt-1 transition-colors ${activeTab === item.id ? 'text-sovr-primary' : 'group-hover:text-white'}`} />
                  <div>
-                   <div className={`text-sm font-medium transition-colors duration-300 ${activeTab === item.id ? 'text-white' : 'text-sovr-muted group-hover:text-white'}`}>
-                     {item.label}
-                   </div>
-                   <div className="text-[10px] text-sovr-muted/70 mt-0.5">{item.desc}</div>
+                   <div className={`text-sm font-medium transition-colors ${activeTab === item.id ? 'text-white' : 'group-hover:text-white'}`}>{item.label}</div>
+                   <div className="text-[10px] opacity-60 mt-0.5">{item.desc}</div>
                  </div>
                </button>
              ))}
            </nav>
 
-           <div className="mt-auto glass-panel rounded-2xl p-6 relative overflow-hidden group hover-glow hidden lg:block transition-all duration-300 hover:scale-[1.02]">
-             <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity duration-500">
-                <Wallet className="w-24 h-24 -mr-8 -mt-8 rotate-12 group-hover:rotate-6 transition-transform duration-500" />
+           <div className="mt-auto glass-panel rounded-2xl p-6 hover-glow transition-all">
+             <div className="flex items-center gap-2 text-sovr-muted text-[10px] uppercase font-bold mb-6 tracking-wider">
+               <Database className="w-3 h-3 text-sovr-primary" /> Real-Time Liquidity
              </div>
-             
-             <div className="flex items-center gap-2 text-sovr-muted text-xs uppercase font-bold tracking-wider mb-6">
-               <span className="w-1 h-4 bg-sovr-primary rounded-full"></span>
-               Asset Overview
-             </div>
-             
-             <div className="space-y-5 relative z-10">
-               <div className="flex justify-between items-end group/item hover:translate-x-1 transition-transform duration-200">
-                 <span className="text-sm text-sovr-muted">SOVR Token</span>
-                 <AnimatedNumber value={wallet.sovrBalance} className="font-mono text-lg text-white" />
+             <div className="space-y-4">
+               <div>
+                 <div className="flex justify-between text-xs text-sovr-muted mb-1"><span>usdSOVR Pool</span><span>100% Solvent</span></div>
+                 <div className="h-1 w-full bg-white/5 rounded-full overflow-hidden"><div className="h-full bg-sovr-primary w-full shadow-[0_0_8px_rgba(56,189,248,0.5)]"></div></div>
                </div>
-               <div className="flex justify-between items-end group/item hover:translate-x-1 transition-transform duration-200 delay-75">
-                 <span className="text-sm text-sovr-muted">usdSOVR Stable</span>
-                 <AnimatedNumber value={wallet.sfiatBalance} className="font-mono text-lg text-sovr-primary drop-shadow-[0_0_8px_rgba(56,189,248,0.5)]" />
-               </div>
-               <div className="pt-4 border-t border-white/10 flex justify-between items-end group/item hover:translate-x-1 transition-transform duration-200 delay-100">
-                 <span className="text-sm text-emerald-400 font-medium">USD Credit</span>
-                 <AnimatedNumber value={wallet.usdCreditBalance} prefix="$" className="font-mono text-xl text-emerald-400 font-bold drop-shadow-[0_0_8px_rgba(52,211,153,0.5)]" />
+               <div className="pt-4 border-t border-white/5 space-y-2">
+                 <div className="flex justify-between text-xs"><span className="text-sovr-muted">Credit Balance</span><span className="text-white font-mono">${wallet.usdCreditBalance.toFixed(2)}</span></div>
+                 <div className="flex justify-between text-xs"><span className="text-sovr-muted">Wallet (usdSOVR)</span><span className="text-white font-mono">{wallet.sfiatBalance.toFixed(2)}</span></div>
+                 <div className="flex justify-between text-xs"><span className="text-sovr-muted">Wallet (SOVR)</span><span className="text-white font-mono">{wallet.sovrBalance.toFixed(2)}</span></div>
                </div>
              </div>
            </div>
         </aside>
 
-        {/* Center: Main Viewport */}
-        <section className="lg:col-span-6 flex flex-col order-1 lg:order-2">
+        {/* Main Content Viewport */}
+        <section className="lg:col-span-6 flex flex-col order-1 lg:order-2 min-h-[500px]">
            <div className="flex-1 relative">
-              {activeTab === AppTab.TERMINAL && (
-                <CreditTerminal 
-                    wallet={wallet} 
-                    onSwap={handleSwap} 
-                    isLoading={isLoading} 
-                />
-              )}
+              {activeTab === AppTab.PAY && <SovrPay wallet={wallet} onAtomicPayment={handleAtomicPayment} isLoading={isLoading} />}
+              {activeTab === AppTab.TERMINAL && <CreditTerminal wallet={wallet} onSwap={handleSwap} isLoading={isLoading} />}
+              
               {activeTab === AppTab.LEDGER && (
-                <NormalizationLayer 
-                    wallet={wallet} 
-                    onNormalize={handleNormalize} 
-                    isLoading={isLoading} 
-                />
-              )}
-              {activeTab === AppTab.GATEWAY && (
-                <USDGateway 
-                    wallet={wallet} 
-                    onAuthorize={handleStripeAuth} 
-                    isLoading={isLoading} 
-                />
-              )}
-              {activeTab === AppTab.HISTORY && (
                 <div className="h-full glass-panel rounded-2xl flex flex-col overflow-hidden animate-in fade-in duration-500">
-                    <div className="p-6 border-b border-white/5 flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                           <div className="p-2 bg-white/5 rounded-lg">
-                             <History className="w-5 h-5 text-sovr-primary" />
-                           </div>
-                           <div>
-                             <h3 className="text-lg font-bold text-white">Immutable Ledger</h3>
-                             <p className="text-xs text-sovr-muted">Base Network • Confirmed Transactions</p>
-                           </div>
+                  <div className="p-6 border-b border-white/5 flex justify-between items-center bg-white/5">
+                    <h3 className="font-bold text-white flex items-center gap-2 tracking-tight"><Database className="w-5 h-5 text-sovr-primary" /> System Ledger</h3>
+                    <div className="flex items-center gap-2 text-[10px] font-mono text-sovr-muted uppercase tracking-widest">TigerBeetle DB (Simulated)</div>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar">
+                    {tbAccounts.map(acc => (
+                      <div key={acc.id} className="glass-panel p-4 rounded-xl border border-white/5 group hover:border-sovr-primary/20 transition-all">
+                        <div className="flex justify-between items-center mb-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-lg bg-sovr-primary/10 flex items-center justify-center text-sovr-primary font-bold">{acc.id}</div>
+                            <div>
+                              <div className="text-xs font-bold text-white uppercase tracking-wider">
+                                {acc.id === "1000" && "Liquidity Pool"}
+                                {acc.id === "2000" && "User Stablecoin Liabilities"}
+                                {acc.id === "3000" && "Gateway Credit Reserves"}
+                                {acc.id === "4000" && "Merchant Revenue"}
+                              </div>
+                              <div className="text-[10px] text-sovr-muted">Account Code: {acc.code}</div>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-xs text-sovr-muted uppercase tracking-tighter">Net Balance</div>
+                            <div className="font-mono text-sm text-white">${((acc.credits_posted - acc.debits_posted) / 100).toFixed(2)}</div>
+                          </div>
                         </div>
-                        <div className="px-3 py-1 bg-sovr-success/10 border border-sovr-success/20 rounded-full flex items-center gap-2">
-                           <div className="w-1.5 h-1.5 bg-sovr-success rounded-full animate-pulse"></div>
-                           <span className="text-[10px] font-bold text-sovr-success uppercase tracking-wider">Synced</span>
+                        <div className="grid grid-cols-2 gap-4 pt-4 border-t border-white/5">
+                          <div>
+                            <div className="text-[9px] text-sovr-muted uppercase mb-1">Total Debits</div>
+                            <div className="text-xs text-red-400 font-mono">${(acc.debits_posted / 100).toFixed(2)}</div>
+                          </div>
+                          <div>
+                            <div className="text-[9px] text-sovr-muted uppercase mb-1">Total Credits</div>
+                            <div className="text-xs text-emerald-400 font-mono">${(acc.credits_posted / 100).toFixed(2)}</div>
+                          </div>
                         </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {activeTab === AppTab.HISTORY && (
+                 <div className="h-full glass-panel rounded-2xl flex flex-col overflow-hidden animate-in fade-in duration-500">
+                    <div className="p-6 border-b border-white/5 flex justify-between items-center bg-white/5">
+                       <h3 className="font-bold text-white flex items-center gap-2 tracking-tight"><History className="w-5 h-5 text-sovr-primary" /> Immutable Ledger</h3>
+                       <div className="flex items-center gap-2 text-[10px] font-mono text-sovr-success">
+                          <div className="w-1.5 h-1.5 bg-sovr-success rounded-full animate-pulse"></div> SYNCED
+                       </div>
                     </div>
-                    
                     <div className="flex-1 overflow-y-auto custom-scrollbar">
                       <table className="w-full text-left border-collapse">
                         <thead className="bg-white/5 sticky top-0 z-10 backdrop-blur-md">
@@ -472,14 +353,14 @@ const App: React.FC = () => {
                                 <span className={`font-mono text-xs font-medium ${
                                     tx.status === 'FAILED' ? 'text-sovr-muted line-through opacity-60' :
                                     tx.amount.startsWith('+') ? 'text-sovr-success' : 
-                                    tx.amount.startsWith('-') ? 'text-sovr-secondary' : 'text-white'
+                                    tx.amount.startsWith('-') ? 'text-red-400' : 'text-white'
                                 }`}>
                                   {tx.amount}
                                 </span>
                               </td>
                               <td className="p-4 hidden sm:table-cell">
-                                <div className="flex items-center gap-2 text-sovr-muted group-hover:text-white transition-colors">
-                                  <span className="font-mono text-[10px] opacity-70">{tx.hash.substring(0, 6)}...{tx.hash.substring(tx.hash.length - 4)}</span>
+                                <div className="flex items-center gap-2 text-sovr-muted group-hover:text-white transition-colors cursor-pointer">
+                                  <span className="font-mono text-[10px] opacity-70">{tx.hash.substring(0, 10)}...</span>
                                   <ExternalLink className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
                                 </div>
                               </td>
@@ -493,20 +374,20 @@ const App: React.FC = () => {
                           ))}
                           {transactions.length === 0 && (
                             <tr>
-                              <td colSpan={5} className="p-12 text-center text-sovr-muted opacity-50">
-                                No transactions recorded on this node.
+                              <td colSpan={5} className="p-12 text-center text-sovr-muted opacity-50 text-xs italic">
+                                No cryptographic evidence found on this cluster.
                               </td>
                             </tr>
                           )}
                         </tbody>
                       </table>
                     </div>
-                </div>
+                 </div>
               )}
            </div>
         </section>
 
-        {/* Right: Logs */}
+        {/* Right Console Logging */}
         <section className="lg:col-span-3 h-[300px] lg:h-auto animate-in slide-in-from-right-4 duration-500 delay-100 order-3">
           <LogConsole logs={logs} />
         </section>
@@ -515,33 +396,21 @@ const App: React.FC = () => {
 
       <AIAssistant />
 
-      {/* Mobile Bottom Navigation - Floating Dock Style */}
+      {/* Mobile Navigation Dock */}
       <nav className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 lg:hidden">
-        <div className="flex items-center gap-2 p-2 bg-black/60 backdrop-blur-2xl border border-white/10 rounded-full shadow-[0_10px_40px_-10px_rgba(0,0,0,0.8)] ring-1 ring-white/5 animate-in slide-in-from-bottom-16 duration-700">
+        <div className="flex items-center gap-1 p-1.5 bg-black/60 backdrop-blur-2xl border border-white/10 rounded-full shadow-[0_10px_40px_-10px_rgba(0,0,0,0.8)] ring-1 ring-white/5">
           {tabs.map((item) => (
             <button
               key={item.id}
               onClick={() => setActiveTab(item.id)}
-              className={`relative p-3.5 rounded-full transition-all duration-300 group flex flex-col items-center justify-center min-w-[3.5rem] ${
-                activeTab === item.id 
-                  ? 'text-white' 
-                  : 'text-sovr-muted hover:text-white'
+              className={`relative p-3 rounded-full transition-all duration-300 group ${
+                activeTab === item.id ? 'text-white' : 'text-sovr-muted'
               }`}
             >
-              {/* Active Glow Indicator - Subtle & Tight */}
-              <div className={`absolute inset-0 rounded-full transition-all duration-500 ${activeTab === item.id ? 'bg-gradient-to-tr from-sovr-primary/20 to-sovr-secondary/10 opacity-100' : 'opacity-0'}`}></div>
-              
               {activeTab === item.id && (
-                  <div className="absolute -bottom-1 w-1 h-1 bg-sovr-primary rounded-full shadow-[0_0_8px_rgba(56,189,248,0.8)] animate-pulse"></div>
+                <div className="absolute inset-0 bg-sovr-primary/10 rounded-full animate-in zoom-in-50 duration-300"></div>
               )}
-
-              <item.icon 
-                className={`w-5 h-5 relative z-10 transition-all duration-300 ${
-                  activeTab === item.id 
-                    ? 'scale-110 drop-shadow-[0_0_8px_rgba(255,255,255,0.5)]' 
-                    : 'group-hover:scale-110'
-                }`} 
-              />
+              <item.icon className={`w-5 h-5 relative z-10 ${activeTab === item.id ? 'scale-110 drop-shadow-[0_0_8px_rgba(56,189,248,0.5)]' : ''}`} />
             </button>
           ))}
         </div>
