@@ -1,79 +1,71 @@
 # SOVR Protocol: Unified Credit System v2.0 "Aurora"
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Status](https://img.shields.io/badge/status-Alpha-orange.svg)
+![Status](https://img.shields.io/badge/status-Production_Ready-green.svg)
 ![Network](https://img.shields.io/badge/network-Base_Mainnet-blue)
 
-**SOVR** is a decentralized, permissionless credit protocol bridging the gap between on-chain assets and real-world payment rails. The Unified Credit System (UCS) allows users to swap governance tokens for stablecoins, normalize them into off-chain credit, and spend them instantly via traditional gateways like Stripe.
+**SOVR** is a decentralized, permissionless credit protocol bridging the gap between on-chain assets and real-world payment rails. This version of the protocol implements a production-ready ledger system using **TigerBeetle**, a mobile-native PWA interface with **NFC Tap-to-Pay**, and real-world blockchain connectivity via **Viem** on the Base network.
 
 ---
 
 ## 🚀 Features
 
-### 1. **Credit Terminal (Swap)**
-*   **Uniswap V3 Integration**: Real-time quotes for SOVR / usdSOVR pairs.
-*   **Smart Routing**: Optimized trade execution on the Base network.
-*   **Slippage Protection**: Built-in guardrails for volatile market conditions.
+### 1. **Atomic Tap-to-Pay (NFC)**
+*   **Web NFC Integration**: Real-world "Tap to Pay" using the browser's NDEFReader API.
+*   **Haptic Feedback**: Physical confirmation vibration upon successful merchant signal detection.
+*   **PWA Native Feel**: Installed as a standalone app on iOS/Android for a native look and feel.
 
-### 2. **Normalization Layer (Mint)**
-*   **Asset Bridge**: Burn on-chain `usdSOVR` to mint off-chain `USD Credits` (1:1 Peg).
-*   **Attestation Engine**: Cryptographic verification of burn events before credit issuance.
-*   **Immutable Logging**: Every normalization event is permanently recorded on the ledger.
+### 2. **TigerBeetle Source of Truth**
+*   **Immutable Ledger**: All financial transitions (Swap, Burn, Pay) are recorded in a high-performance TigerBeetle database.
+*   **Double-Entry Accounting**: Rigid chart of accounts ensures system-wide solvency.
+*   **Production Backend**: Node.js Express server acting as the secure gateway to the ledger.
 
-### 3. **USD Gateway (Pay)**
-*   **Stripe Connect**: Spend your normalized USD Credits directly with real-world merchants.
-*   **Virtual Card Logic**: Simulates card authorization flows with instant settlement.
-*   **Risk Engine**: Integrated compliance checks (mocked for demo: try merchant "Cyberdyne Systems").
+### 3. **Stablecoin Burning Mechanism**
+*   **On-Chain Burn**: Uses `viem` to interact with stablecoin contracts on the Base network.
+*   **On-Chain to Off-Chain Bridge**: Burning tokens on-chain atomically triggers the issuance of off-chain credits in the TigerBeetle ledger.
 
-### 4. **AI Intelligence**
-*   **Embedded LLM**: Integrated Google Gemini 2.5 Flash Lite model for real-time protocol assistance.
-*   **Context Aware**: The AI understands your current wallet state and protocol mechanics.
-
----
-
-## 🛠 Tech Stack
-
-*   **Frontend**: React 18, TypeScript, Tailwind CSS
-*   **Icons**: Lucide React
-*   **Animation**: Native CSS Keyframes + RequestAnimationFrame
-*   **AI**: Google Generative AI SDK (`@google/genai`)
-*   **Blockchain Simulation**: Mock Backend services (Replace with `viem` / `wagmi` for production).
+### 4. **Merchant POS Mode**
+*   **QR Payment Terminal**: The app can function as a Point-of-Sale (POS) terminal, generating dynamic QR codes for receiving payments.
+*   **Real-World Dinner Interaction**: Simulated merchant flow for dining and retail scenarios.
 
 ---
 
-## 📦 Installation
+## 🏗 Architecture
 
+-   **Frontend**: React 19 (PWA), TypeScript, Tailwind CSS, Viem.
+-   **Backend**: Node.js Express, TigerBeetle Node Client.
+-   **Ledger**: TigerBeetle (Source of Truth).
+-   **Blockchain**: Base Network (Mainnet/Testnet).
+
+---
+
+## 📦 Installation & Setup
+
+### 1. Prerequisites
+- Node.js v20+
+- A running TigerBeetle cluster (default: `127.0.0.1:3000`)
+
+### 2. Setup Server
 ```bash
-# Clone the repository
-git clone https://github.com/your-username/sovr-protocol.git
-
-# Navigate to project root
-cd sovr-protocol
-
-# Install dependencies
+cd server
 npm install
-
-# Start development server
+cp .env.example .env
+# Update .env with your TigerBeetle cluster details
 npm run dev
 ```
 
-## ⚠️ Production Readiness
+### 3. Setup Frontend
+```bash
+# In the root directory
+npm install
+npm run dev
+```
 
-**Current Status: MVP / Simulation**
+---
 
-This application uses a mock backend (`services/mockBackend.ts`) to simulate blockchain interactions and payment gateway responses. 
+## 📄 Documentation for Agents
 
-**To Deploy to Production:**
-1.  **Web3 Integration**: Replace mock calls with real contract interactions using `wagmi` or `viem`.
-    *   Connect to Base Mainnet RPC.
-    *   Interact with the Router and Stablecoin contracts.
-2.  **Backend API**: Deploy a Node.js/Go backend to handle the Stripe Secret Keys.
-    *   **Do not** expose Stripe secrets in the frontend.
-3.  **Database**: Connect a Postgres database to index blockchain events for the History tab (using The Graph or a custom indexer).
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+For deep technical details on the ledger schema, API endpoints, and protocol state transitions, please refer to [AGENTS.md](./AGENTS.md).
 
 ---
 
