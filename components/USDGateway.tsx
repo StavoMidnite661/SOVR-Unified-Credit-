@@ -11,7 +11,7 @@ interface SovrPayProps {
 }
 
 const SovrPay: React.FC<SovrPayProps> = ({ wallet, onAtomicPayment, isLoading }) => {
-  const [mode, setMode] = useState<'NFC' | 'QR'>('NFC');
+  const [mode, setMode] = useState<'NFC' | 'QR' | 'RECEIVE'>('NFC');
   const [status, setStatus] = useState<'IDLE' | 'SCANNING' | 'DETECTED' | 'PROCESSING' | 'SUCCESS'>('IDLE');
   const [merchantData, setMerchantData] = useState<MerchantRequest | null>(null);
   const [sovrQuote, setSovrQuote] = useState<number>(0);
@@ -27,15 +27,43 @@ const SovrPay: React.FC<SovrPayProps> = ({ wallet, onAtomicPayment, isLoading })
 
   const startScan = async () => {
     setStatus('SCANNING');
+
+    // Web NFC Support Check
+    if (mode === 'NFC' && 'NDEFReader' in window) {
+      try {
+        const ndef = new (window as any).NDEFReader();
+        await ndef.scan();
+        console.log("NFC Scan started");
+
+        ndef.addEventListener("reading", ({ message, serialNumber }: any) => {
+          console.log(`> Serial Number: ${serialNumber}`);
+          // Parse NDEF message for merchant data
+          // For demo, we still use detection logic but tied to real NFC event
+          handleDetectedSignal();
+        });
+      } catch (error) {
+        console.error(`Error! Scan failed to start: ${error}`);
+        // Fallback to simulation if NFC fails (common in desktop browsers)
+        await handleDetectedSignal();
+      }
+    } else {
+      // QR or Fallback Simulation
+      await handleDetectedSignal();
+    }
+  };
+
+  const handleDetectedSignal = async () => {
     try {
       const data = await detectMerchantSignal(mode);
       setMerchantData(data);
-      
-      // Calculate SOVR needed: (USD Amount / 2.5) roughly, utilizing backend quote logic
-      const estimatedSovr = data.amountUSD / 2.5 * 1.01; // Adding 1% buffer
+      const estimatedSovr = data.amountUSD / 2.5 * 1.01;
       setSovrQuote(estimatedSovr);
-      
       setStatus('DETECTED');
+
+      // Haptic Feedback (if supported)
+      if ('vibrate' in navigator) {
+        navigator.vibrate([100, 30, 100]);
+      }
     } catch (e) {
       setStatus('IDLE');
     }
@@ -131,7 +159,13 @@ const SovrPay: React.FC<SovrPayProps> = ({ wallet, onAtomicPayment, isLoading })
                onClick={() => setMode('QR')}
                className={`px-4 py-2 rounded-full text-xs font-bold transition-all flex items-center gap-2 ${mode === 'QR' ? 'bg-sovr-primary text-black shadow-lg shadow-sky-500/20' : 'text-sovr-muted hover:text-white'}`}
              >
-               <QrCode className="w-3 h-3" /> Scan
+               <Scan className="w-3 h-3" /> Scan
+             </button>
+             <button
+               onClick={() => setMode('RECEIVE')}
+               className={`px-4 py-2 rounded-full text-xs font-bold transition-all flex items-center gap-2 ${mode === 'RECEIVE' ? 'bg-sovr-primary text-black shadow-lg shadow-sky-500/20' : 'text-sovr-muted hover:text-white'}`}
+             >
+               <QrCode className="w-3 h-3" /> POS
              </button>
           </div>
 
@@ -226,25 +260,41 @@ const SovrPay: React.FC<SovrPayProps> = ({ wallet, onAtomicPayment, isLoading })
                      </div>
                    )}
 
-                   {/* Center Icon */}
-                   <div className="relative z-10 w-24 h-24 bg-gradient-to-br from-gray-900 to-black rounded-full border border-white/10 shadow-2xl flex items-center justify-center group-hover:border-sovr-primary/50 transition-colors">
-                      {status === 'SCANNING' ? (
-                        <Loader2 className="w-10 h-10 text-sovr-primary animate-spin" />
-                      ) : mode === 'NFC' ? (
-                        <Wifi className="w-10 h-10 text-white rotate-90" />
-                      ) : (
-                        <Scan className="w-10 h-10 text-white" />
-                      )}
-                   </div>
-                   
-                   <div className="absolute -bottom-12 text-center">
-                      <p className="text-white font-bold text-lg tracking-wide">
-                        {status === 'SCANNING' ? 'Searching...' : mode === 'NFC' ? 'Tap to Pay' : 'Scan Code'}
-                      </p>
-                      <p className="text-xs text-sovr-muted mt-1">
-                        {status === 'SCANNING' ? 'Hold near reader' : 'Ready for merchant signal'}
-                      </p>
-                   </div>
+                   {/* Center Icon / QR Display */}
+                   {mode === 'RECEIVE' ? (
+                     <div className="relative z-10 p-4 bg-white rounded-3xl shadow-2xl animate-in zoom-in duration-500">
+                        <img
+                          src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=sovr:${wallet.address}&color=000000&bgcolor=FFFFFF`}
+                          alt="Payment QR"
+                          className="w-48 h-48"
+                        />
+                        <div className="absolute -bottom-16 left-0 right-0 text-center">
+                           <p className="text-white font-bold text-lg tracking-wide">POS Terminal</p>
+                           <p className="text-xs text-sovr-muted mt-1">Show to merchant to receive payment</p>
+                        </div>
+                     </div>
+                   ) : (
+                     <>
+                        <div className={`relative z-10 w-24 h-24 bg-gradient-to-br from-gray-900 to-black rounded-full border border-white/10 shadow-2xl flex items-center justify-center group-hover:border-sovr-primary/50 transition-colors ${status === 'DETECTED' ? 'haptic-feedback' : ''}`}>
+                          {status === 'SCANNING' ? (
+                            <Loader2 className="w-10 h-10 text-sovr-primary animate-spin" />
+                          ) : mode === 'NFC' ? (
+                            <Wifi className="w-10 h-10 text-white rotate-90" />
+                          ) : (
+                            <Scan className="w-10 h-10 text-white" />
+                          )}
+                        </div>
+
+                        <div className="absolute -bottom-12 text-center">
+                           <p className="text-white font-bold text-lg tracking-wide">
+                             {status === 'SCANNING' ? 'Searching...' : mode === 'NFC' ? 'Tap to Pay' : 'Scan Code'}
+                           </p>
+                           <p className="text-xs text-sovr-muted mt-1">
+                             {status === 'SCANNING' ? 'Hold near reader' : 'Ready for merchant signal'}
+                           </p>
+                        </div>
+                     </>
+                   )}
                 </button>
              )}
           </div>

@@ -5,22 +5,23 @@ import ConfirmationModal from './ConfirmationModal';
 
 interface NormalizationLayerProps {
   wallet: WalletState;
-  onNormalize: (amount: number) => Promise<void>;
+  onBurn: (amount: number) => Promise<void>;
   isLoading: boolean;
 }
 
-const NormalizationLayer: React.FC<NormalizationLayerProps> = ({ wallet, onNormalize, isLoading }) => {
+const NormalizationLayer: React.FC<NormalizationLayerProps> = ({ wallet, onBurn, isLoading }) => {
   const [amount, setAmount] = useState<string>('');
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   
-  const initiateNormalize = () => {
+  const initiateBurn = () => {
     if (!amount || Number(amount) <= 0) return;
     setIsConfirmOpen(true);
   };
 
-  const executeNormalize = () => {
-    onNormalize(Number(amount));
+  const executeBurn = () => {
+    onBurn(Number(amount));
     setAmount('');
+    setIsConfirmOpen(false);
   };
 
   return (
@@ -28,15 +29,15 @@ const NormalizationLayer: React.FC<NormalizationLayerProps> = ({ wallet, onNorma
       <ConfirmationModal
         isOpen={isConfirmOpen}
         onClose={() => setIsConfirmOpen(false)}
-        onConfirm={executeNormalize}
-        title="Confirm Normalization"
-        message="This action will burn your on-chain usdSOVR tokens to issue off-chain USD Credits. This process is irreversible."
-        confirmText="Burn & Mint"
+        onConfirm={executeBurn}
+        title="Confirm Protocol Burn"
+        message="Stablecoins will be permanently removed from circulation to create a verified ledger entry in TigerBeetle."
+        confirmText="Burn Stablecoins"
         isDangerous={true}
         details={[
-          { label: 'Burning', value: `${amount} usdSOVR`, highlight: true },
-          { label: 'Minting', value: `$${amount} USD Credit` },
-          { label: 'Settlement Time', value: '~1200ms' },
+          { label: 'Asset to Burn', value: `${amount} usdSOVR`, highlight: true },
+          { label: 'Ledger Entry', value: 'TigerBeetle ID: 5000' },
+          { label: 'Action', value: 'Permanent Destruction' },
         ]}
       />
 
@@ -53,8 +54,8 @@ const NormalizationLayer: React.FC<NormalizationLayerProps> = ({ wallet, onNorma
                    <FileJson className="w-5 h-5 text-sovr-primary" />
                 </div>
                 <div>
-                  <h2 className="text-lg font-bold text-white tracking-tight">Attest & Mint</h2>
-                  <p className="text-[10px] text-sovr-muted uppercase tracking-wider">Normalization Layer</p>
+                  <h2 className="text-lg font-bold text-white tracking-tight">Burn & Ledger</h2>
+                  <p className="text-[10px] text-sovr-muted uppercase tracking-wider">Stablecoin Destruction</p>
                 </div>
              </div>
              <div className="flex items-center gap-1.5 text-[10px] font-mono text-sovr-success bg-sovr-success/10 px-2 py-1 rounded border border-sovr-success/20 animate-pulse-slow">
@@ -83,7 +84,7 @@ const NormalizationLayer: React.FC<NormalizationLayerProps> = ({ wallet, onNorma
             {/* Input Block */}
             <div className="bg-black/40 rounded-xl p-4 border border-white/5 transition-all duration-300 ease-out focus-within:border-sovr-primary/50 focus-within:bg-black/60 focus-within:scale-[1.02] focus-within:shadow-[0_0_20px_-5px_rgba(56,189,248,0.15)] group">
                <div className="flex justify-between text-xs text-sovr-muted mb-2">
-                 <span className="font-medium text-sovr-muted group-focus-within:text-sovr-primary transition-colors duration-300">Amount to Normalize</span>
+                 <span className="font-medium text-sovr-muted group-focus-within:text-sovr-primary transition-colors duration-300">Amount to Burn</span>
                </div>
                <div className="flex items-center justify-between">
                   <input 
@@ -101,23 +102,23 @@ const NormalizationLayer: React.FC<NormalizationLayerProps> = ({ wallet, onNorma
 
              {/* Action Button */}
              <button 
-                onClick={initiateNormalize}
+                onClick={initiateBurn}
                 disabled={isLoading || Number(amount) <= 0 || Number(amount) > wallet.sfiatBalance}
-                className="group w-full mt-4 bg-gradient-to-r from-sovr-primary to-blue-600 text-white font-bold py-4 rounded-xl shadow-[0_0_20px_-5px_rgba(34,211,238,0.3)] hover:shadow-[0_0_30px_-5px_rgba(34,211,238,0.5)] hover:scale-[1.01] active:scale-[0.99] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 relative z-10 overflow-hidden"
+                className="group w-full mt-4 bg-gradient-to-r from-red-500 to-orange-600 text-white font-bold py-4 rounded-xl shadow-[0_0_20px_-5px_rgba(239,68,68,0.3)] hover:shadow-[0_0_30px_-5px_rgba(239,68,68,0.5)] hover:scale-[1.01] active:scale-[0.99] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 relative z-10 overflow-hidden"
               >
                 <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-500 ease-out"></div>
                 {isLoading ? (
                   <Activity className="w-5 h-5 animate-spin relative z-10" />
                 ) : (
                   <span className="relative z-10 flex items-center gap-2 transition-transform duration-300 group-hover:scale-105">
-                     Normalize Assets <ArrowRight className="w-4 h-4" />
+                     Burn Stablecoins <ArrowRight className="w-4 h-4" />
                   </span>
                 )}
               </button>
             
-            <div className="mt-4 flex items-start gap-2 text-[10px] text-sovr-muted bg-sovr-primary/5 p-3 rounded-lg border border-sovr-primary/10">
-              <Activity className="w-3 h-3 text-sovr-primary mt-0.5 shrink-0" />
-              <p>By clicking Normalize, you are burning on-chain assets. This action is irreversible and recorded on the ledger.</p>
+            <div className="mt-4 flex items-start gap-2 text-[10px] text-sovr-muted bg-red-500/5 p-3 rounded-lg border border-red-500/10">
+              <Activity className="w-3 h-3 text-red-500 mt-0.5 shrink-0" />
+              <p>By clicking Burn, you are permanently destroying stablecoins to create a verifiable credit entry in the TigerBeetle ledger.</p>
             </div>
           </div>
         </div>

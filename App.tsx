@@ -3,7 +3,8 @@ import { LayoutGrid, CreditCard, ArrowLeftRight, History, Wallet, Sparkles, Exte
 import { AppTab, WalletState, LogEntry, Transaction, TBAccount, MerchantRequest } from './types';
 import { createLog, processNormalization, authorizeStripePayment, simulateDelay, checkTransactionStatus, registerTransaction } from './services/mockBackend';
 import { tigerBeetle } from './services/tigerBeetle';
-import { performProtocolSwap, performNormalization, performPayment } from './services/productionMiddleware';
+import { performProtocolSwap, performNormalization, performPayment, performBurn } from './services/productionMiddleware';
+import { burnStablecoins } from './services/web3.ts';
 import CreditTerminal from './components/CreditTerminal';
 import NormalizationLayer from './components/NormalizationLayer';
 import SovrPay from './components/USDGateway';
@@ -73,8 +74,25 @@ const App: React.FC = () => {
         if (updatesMade) setTransactions(updatedTransactions);
       }
 
-      // Sync TigerBeetle Accounts UI
-      setTbAccounts(tigerBeetle.getAllAccounts());
+      // Sync TigerBeetle Accounts UI from Backend
+      try {
+        const response = await fetch('http://localhost:3001/ledger/accounts');
+        if (response.ok) {
+          const accounts = await response.json();
+          // Map backend accounts (with string BigInts) back to TBAccount type for UI
+          setTbAccounts(accounts.map((acc: any) => ({
+            ...acc,
+            debits_pending: Number(acc.debits_pending),
+            debits_posted: Number(acc.debits_posted),
+            credits_pending: Number(acc.credits_pending),
+            credits_posted: Number(acc.credits_posted),
+          })));
+        }
+      } catch (e) {
+        console.error("Failed to sync with TB backend");
+        // Fallback to local simulation if backend is down
+        setTbAccounts(tigerBeetle.getAllAccounts());
+      }
     }, 2000);
 
     return () => clearInterval(pollInterval);
@@ -135,6 +153,47 @@ const App: React.FC = () => {
   };
 
   // --- LEGACY MANUAL ACTIONS ---
+  const handleBurn = async (amount: number) => {
+    setIsLoading(true);
+    addLog(createLog('NORM', `Initiating On-Chain Burn: ${amount.toFixed(2)} usdSOVR`, 'info'));
+
+    try {
+      if (wallet.sfiatBalance < amount) throw new Error("Insufficient usdSOVR");
+
+      // 1. Real World Blockchain Interaction
+      const txHash = await burnStablecoins(amount, wallet.address as `0x${string}`);
+      addLog(createLog('CHAIN', `Burn Transaction: ${txHash}`, 'success'));
+      registerTransaction(txHash);
+
+      // 2. TigerBeetle Source of Truth Update
+      // Atomically converts liability (2000) to credit (3000)
+      const tbTransferId = await performBurn(amount);
+
+      setWallet(prev => ({
+        ...prev,
+        sfiatBalance: prev.sfiatBalance - amount,
+        usdCreditBalance: prev.usdCreditBalance + amount
+      }));
+
+      addTransaction({
+        id: `tx_burn_${Date.now()}`,
+        type: 'BURN_MINT',
+        description: `Protocol Burn [TB: ${tbTransferId}]`,
+        amount: `-${amount.toFixed(2)} usdSOVR`,
+        status: 'PENDING',
+        hash: txHash,
+        tbTransferId: tbTransferId,
+        timestamp: Date.now()
+      });
+
+      addLog(createLog('TIGERBEETLE', `Transfer Committed: ${tbTransferId}`, 'success'));
+      addLog(createLog('SYSTEM', `Ledger updated: usdSOVR -> USD Credit`, 'success'));
+    } catch (e: any) {
+      addLog(createLog('NORM', `Burn failed: ${e.message}`, 'error'));
+    }
+    setIsLoading(false);
+  };
+
   const handleSwap = async (amountIn: number, isSovrToFiat: boolean) => {
     setIsLoading(true);
     addLog(createLog('CHAIN', `Processing Swap...`, 'info'));
@@ -224,10 +283,10 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      <main className="relative z-40 container mx-auto p-4 md:p-6 lg:p-8 grid grid-cols-1 lg:grid-cols-12 gap-8 lg:h-[calc(100vh-5rem)] h-auto pb-32 lg:pb-6">
+      <main className="relative z-40 container mx-auto p-4 md:p-6 lg:p-8 grid grid-cols-1 lg:grid-cols-12 gap-8 lg:h-[calc(100vh-5rem)] h-auto pb-32 lg:pb-6 safe-bottom">
         
         {/* Desktop Sidebar Navigation */}
-        <aside className="lg:col-span-3 hidden lg:flex flex-col gap-6 order-2 lg:order-1 animate-in slide-in-from-left-4 duration-500">
+        <aside className="lg:col-span-3 hidden lg:flex flex-col gap-6 order-2 lg:order-1 animate-in slide-in-from-left-4 duration-500 mobile-hide">
            <nav className="flex flex-col gap-2">
              {tabs.map((item) => (
                <button key={item.id} onClick={() => setActiveTab(item.id)}
@@ -264,7 +323,12 @@ const App: React.FC = () => {
         <section className="lg:col-span-6 flex flex-col order-1 lg:order-2 min-h-[500px]">
            <div className="flex-1 relative">
               {activeTab === AppTab.PAY && <SovrPay wallet={wallet} onAtomicPayment={handleAtomicPayment} isLoading={isLoading} />}
-              {activeTab === AppTab.TERMINAL && <CreditTerminal wallet={wallet} onSwap={handleSwap} isLoading={isLoading} />}
+              {activeTab === AppTab.TERMINAL && (
+                <div className="h-full flex flex-col gap-6">
+                  <CreditTerminal wallet={wallet} onSwap={handleSwap} isLoading={isLoading} />
+                  <NormalizationLayer wallet={wallet} onBurn={handleBurn} isLoading={isLoading} />
+                </div>
+              )}
               
               {activeTab === AppTab.LEDGER && (
                 <div className="h-full glass-panel rounded-2xl flex flex-col overflow-hidden animate-in fade-in duration-500">
@@ -284,6 +348,7 @@ const App: React.FC = () => {
                                 {acc.id === "2000" && "User Stablecoin Liabilities"}
                                 {acc.id === "3000" && "Gateway Credit Reserves"}
                                 {acc.id === "4000" && "Merchant Revenue"}
+                                {acc.id === "5000" && "Burn Account"}
                               </div>
                               <div className="text-[10px] text-sovr-muted">Account Code: {acc.code}</div>
                             </div>
