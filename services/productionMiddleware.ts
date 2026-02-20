@@ -1,5 +1,5 @@
 import { tigerBeetle } from "./tigerBeetle";
-import { createLog } from "./mockBackend";
+import { createLog } from "./protocolService";
 import { LogEntry } from "../types";
 
 /**

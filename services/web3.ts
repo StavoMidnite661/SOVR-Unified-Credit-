@@ -12,7 +12,9 @@ export const publicClient = createPublicClient({
 
 export const getWalletClient = async () => {
   if (typeof window !== 'undefined' && (window as any).ethereum) {
+    const [account] = await (window as any).ethereum.request({ method: 'eth_requestAccounts' });
     return createWalletClient({
+      account,
       chain: base,
       transport: custom((window as any).ethereum),
     });
@@ -20,20 +22,43 @@ export const getWalletClient = async () => {
   return null;
 };
 
-export const burnStablecoins = async (amount: number, address: `0x${string}`) => {
+// ERC20 ABI Subset
+export const ERC20_ABI = [
+  { name: 'balanceOf', type: 'function', stateMutability: 'view', inputs: [{ name: 'account', type: 'address' }], outputs: [{ type: 'uint256' }] },
+  { name: 'transfer', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'recipient', type: 'address' }, { name: 'amount', type: 'uint256' }], outputs: [{ type: 'boolean' }] },
+  { name: 'decimals', type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint8' }] },
+] as const;
+
+export const getTokenBalance = async (tokenAddress: `0x${string}`, userAddress: `0x${string}`) => {
+  const balance = await publicClient.readContract({
+    address: tokenAddress,
+    abi: ERC20_ABI,
+    functionName: 'balanceOf',
+    args: [userAddress],
+  });
+  const decimals = await publicClient.readContract({
+    address: tokenAddress,
+    abi: ERC20_ABI,
+    functionName: 'decimals',
+  });
+  return Number(balance) / Math.pow(10, decimals);
+};
+
+export const burnStablecoins = async (amount: number, userAddress: `0x${string}`) => {
   const walletClient = await getWalletClient();
   if (!walletClient) throw new Error("No wallet connected");
 
-  const amountBigInt = parseUnits(amount.toString(), 18); // Assuming 18 decimals
+  const amountBigInt = parseUnits(amount.toString(), 18);
 
-  // In a real world app, this would be a contract call to 'burn' or 'transfer' to dead address
-  // For this implementation, we simulate the interaction but provide the real structure
-  const hash = await walletClient.sendTransaction({
-    account: address,
-    to: BURN_ADDRESS,
-    value: 0n,
-    data: '0x' // In reality, this would be the ABI encoded 'burn' function
+  // REAL CONTRACT CALL: Transfer to Dead Address (Standard Burn mechanism for many stablecoins)
+  const { request } = await publicClient.simulateContract({
+    account: userAddress,
+    address: USD_SOVR_ADDRESS as `0x${string}`,
+    abi: ERC20_ABI,
+    functionName: 'transfer',
+    args: [BURN_ADDRESS as `0x${string}`, amountBigInt],
   });
 
+  const hash = await walletClient.writeContract(request);
   return hash;
 };

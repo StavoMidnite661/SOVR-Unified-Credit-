@@ -69,5 +69,16 @@ Located in `server/.env.example`:
 
 1. **TigerBeetle:** Ensure a TigerBeetle node is running with the accounts 1000-5000 initialized.
 2. **Base Contracts:** Replace placeholder addresses in `services/web3.ts` with real deployed contract addresses.
+   - `USD_SOVR_ADDRESS`: The ERC20 stablecoin on Base.
+   - `BURN_ADDRESS`: Typically `0x000000000000000000000000000000000000dEaD`.
 3. **PWA Assets:** Replace the placeholder icons in `manifest.json` with official SOVR branding.
-4. **Stripe Integration:** Replace the simulation in `services/mockBackend.ts` with a real Stripe Connect implementation in the backend.
+4. **Stripe Integration:** Replace the simulation in `services/protocolService.ts` with a real Stripe Connect implementation in the backend.
+
+## 6. Real-World Testing Guide
+
+To test the system in a production-like environment:
+1. **Connect Wallet:** Use MetaMask on the Base network (Sepolia for testing).
+2. **Faucet:** Ensure you have the SOVR/usdSOVR test tokens in your wallet.
+3. **Burn Logic:** Go to the "Terminal" tab, enter an amount, and click "Burn Stablecoins". Confirm the transaction in your wallet.
+4. **Ledger Sync:** Observe the "Ledger" tab; you should see the User Liability decrease and Gateway Credit increase in real-time as the TigerBeetle backend processes the event.
+5. **Tap-to-Pay:** Use a secondary device or simulator to trigger an NFC NDEF message containing a merchant ID.

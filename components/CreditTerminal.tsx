@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ArrowDownUp, RefreshCw, Wallet, Cpu, Zap } from 'lucide-react';
 import { WalletState } from '../types';
-import { getQuote, simulateDelay, ROUTER_ADDRESS } from '../services/mockBackend';
+import { getQuote, simulateDelay, ROUTER_ADDRESS } from '../services/protocolService';
 import ConfirmationModal from './ConfirmationModal';
 
 interface CreditTerminalProps {

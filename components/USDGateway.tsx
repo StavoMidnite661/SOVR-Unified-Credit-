@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Wifi, QrCode, Scan, CreditCard, ArrowRight, Loader2, CheckCircle2, ShieldCheck, Zap, X } from 'lucide-react';
 import { WalletState, MerchantRequest } from '../types';
-import { detectMerchantSignal } from '../services/mockBackend';
+import { detectMerchantSignal } from '../services/protocolService';
 import ConfirmationModal from './ConfirmationModal';
 
 interface SovrPayProps {

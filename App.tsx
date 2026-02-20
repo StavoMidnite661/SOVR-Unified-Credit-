@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { LayoutGrid, CreditCard, ArrowLeftRight, History, Wallet, Sparkles, ExternalLink, CheckCircle2, Clock, XCircle, AlertCircle, Loader2, Database, TrendingUp, TrendingDown, ShieldCheck, Activity, Zap } from 'lucide-react';
 import { AppTab, WalletState, LogEntry, Transaction, TBAccount, MerchantRequest } from './types';
-import { createLog, processNormalization, authorizeStripePayment, simulateDelay, checkTransactionStatus, registerTransaction } from './services/mockBackend';
+import { createLog, authorizeStripePayment, simulateDelay, checkTransactionStatus, registerTransaction } from './services/protocolService';
 import { tigerBeetle } from './services/tigerBeetle';
 import { performProtocolSwap, performNormalization, performPayment, performBurn } from './services/productionMiddleware';
 import { burnStablecoins } from './services/web3.ts';
@@ -27,8 +27,8 @@ const App: React.FC = () => {
   const [tbAccounts, setTbAccounts] = useState<TBAccount[]>(tigerBeetle.getAllAccounts());
   
   const [wallet, setWallet] = useState<WalletState>({
-    address: '0x71C...9A23',
-    sovrBalance: 1500.00,
+    address: '',
+    sovrBalance: 0.00,
     sfiatBalance: 0.00, 
     usdCreditBalance: 0.00,
     isConnected: false
@@ -42,14 +42,45 @@ const App: React.FC = () => {
     setTransactions(prev => [tx, ...prev]);
   };
 
-  const connectWallet = () => {
-    setWallet(prev => ({ ...prev, isConnected: true }));
-    addLog(createLog('SYSTEM', 'Wallet connected: 0x71C...9A23', 'success'));
+  const connectWallet = async () => {
+    try {
+      const { getWalletClient, getTokenBalance, USD_SOVR_ADDRESS } = await import('./services/web3.ts');
+      const client = await getWalletClient();
+      if (client && client.account) {
+        const address = client.account.address;
+        addLog(createLog('SYSTEM', `Wallet connected: ${address}`, 'success'));
+
+        // Fetch real balances
+        // For SOVR, we use the same address or another placeholder if separate
+        const sfiatBal = await getTokenBalance(USD_SOVR_ADDRESS as `0x${string}`, address);
+
+        setWallet({
+          address,
+          sovrBalance: 100.00, // Placeholder for SOVR token balance if different contract
+          sfiatBalance: sfiatBal,
+          usdCreditBalance: 0.00,
+          isConnected: true
+        });
+      }
+    } catch (e: any) {
+      addLog(createLog('SYSTEM', `Connection failed: ${e.message}`, 'error'));
+    }
   };
 
   // Polling for Pending Transactions & TB State Sync
   useEffect(() => {
     const pollInterval = setInterval(async () => {
+      // Refresh Web3 Balances if connected
+      if (wallet.isConnected && wallet.address) {
+        try {
+          const { getTokenBalance, USD_SOVR_ADDRESS } = await import('./services/web3.ts');
+          const sfiatBal = await getTokenBalance(USD_SOVR_ADDRESS as `0x${string}`, wallet.address as `0x${string}`);
+          setWallet(prev => ({ ...prev, sfiatBalance: sfiatBal }));
+        } catch (e) {
+          console.error("Balance refresh failed");
+        }
+      }
+
       const pendingTxs = transactions.filter(tx => tx.status === 'PENDING');
       
       if (pendingTxs.length > 0) {
