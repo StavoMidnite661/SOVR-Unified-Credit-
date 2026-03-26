@@ -4,7 +4,9 @@
 ![Status](https://img.shields.io/badge/status-Production_Ready-green.svg)
 ![Network](https://img.shields.io/badge/network-Base_Mainnet-blue)
 
-![SOVR Tap-to-Pay Hero](./hero-screenshot.png)
+<div align="center">
+  <img src="./hero-screenshot.png" alt="SOVR Tap-to-Pay Hero" width="300" />
+</div>
 
 **SOVR** is a decentralized, permissionless credit protocol bridging the gap between on-chain assets and real-world payment rails. The "Aurora" version of the protocol implements a production-ready ledger system using **TigerBeetle**, a mobile-native Progressive Web App (PWA) interface featuring **Web NFC Tap-to-Pay**, and real-world blockchain connectivity via **Viem** on the Base network. 
 
