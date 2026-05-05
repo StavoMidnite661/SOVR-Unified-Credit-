@@ -13,60 +13,42 @@ export const performProtocolSwap = async (amount: number, isSovrToFiat: boolean)
   // If User buys usdSOVR: 
   // Debit: System Pool (1000)
   // Credit: User Liability (2000)
-  const response = await fetch('http://localhost:3001/transactions/transfer', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      debit_id: isSovrToFiat ? "1000" : "2000",
-      credit_id: isSovrToFiat ? "2000" : "1000",
-      amount,
-      code: 101
-    })
-  });
-  const data = await response.json();
-  if (data.error) throw new Error(data.error);
-  return data.transfer_id;
-};
-
-export const performBurn = async (amount: number): Promise<string> => {
-  // Production Ledger Flow:
-  // Convert Stablecoin Liability (2000) -> Gateway Credit Liability (3000)
-  // This is an atomic "Burn & Mint" in the TigerBeetle source of truth.
-  const response = await fetch('http://localhost:3001/transactions/transfer', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      debit_id: "2000",
-      credit_id: "3000",
-      amount,
-      code: 501 // Protocol Burn Code
-    })
-  });
-  const data = await response.json();
-  if (data.error) throw new Error(data.error);
-  return data.transfer_id;
+  const [transferId] = await tigerBeetle.createTransfers([{
+    debit_account_id: isSovrToFiat ? "1000" : "2000",
+    credit_account_id: isSovrToFiat ? "2000" : "1000",
+    amount: Math.floor(amount * 100), // TB works in integers (cents/micros)
+    code: 101 // Swap Code
+  }]);
+  
+  return transferId;
 };
 
 export const performNormalization = async (amount: number): Promise<string> => {
-  // Normalization is now consolidated into performBurn for production efficiency.
-  // We keep this as a pass-through or alias if needed, but App.tsx will call performBurn.
-  return performBurn(amount);
+  // Normalization: User burns on-chain usdSOVR, gains off-chain Credit
+  // Debit: User Liability Account (2000) - Reducing the supply
+  // Credit: Gateway Credit Pool (3000) - Increasing spending power
+  const [transferId] = await tigerBeetle.createTransfers([{
+    debit_account_id: "2000",
+    credit_account_id: "3000",
+    amount: Math.floor(amount * 100),
+    code: 201 // Normalization Code
+  }]);
+
+  return transferId;
 };
 
 export const performPayment = async (amount: number, merchantId: string): Promise<string> => {
-  const response = await fetch('http://localhost:3001/transactions/transfer', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      debit_id: "3000",
-      credit_id: "4000",
-      amount,
-      code: 301
-    })
-  });
-  const data = await response.json();
-  if (data.error) throw new Error(data.error);
-  return data.transfer_id;
+  // Payment: User spends Credit at a Merchant
+  // Debit: Gateway Credit Pool (3000)
+  // Credit: Merchant Revenue Account (4000)
+  const [transferId] = await tigerBeetle.createTransfers([{
+    debit_account_id: "3000",
+    credit_account_id: "4000",
+    amount: Math.floor(amount * 100),
+    code: 301 // Payment Code
+  }]);
+
+  return transferId;
 };
 
 export const getTBAccountBalance = (id: string): number => {

@@ -23,8 +23,6 @@ class TigerBeetleClient {
     this.createAccount("3000", 1);
     // 4000: Merchant Revenue (Liability)
     this.createAccount("4000", 1);
-    // 5000: Burn Account (Liability - where tokens go to die)
-    this.createAccount("5000", 1);
   }
 
   createAccount(id: string, code: number): TBAccount {

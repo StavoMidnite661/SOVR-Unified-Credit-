@@ -95,8 +95,7 @@ export const detectMerchantSignal = async (mode: 'NFC' | 'QR'): Promise<Merchant
     { name: 'Starbucks Coffee', category: 'Food & Drink', avg: 12.50 },
     { name: 'Uber Technologies', category: 'Transport', avg: 24.00 },
     { name: 'Whole Foods Market', category: 'Grocery', avg: 85.00 },
-    { name: 'Apple Store', category: 'Electronics', avg: 299.00 },
-    { name: 'The Steakhouse (Dinner)', category: 'Dining', avg: 145.00 }
+    { name: 'Apple Store', category: 'Electronics', avg: 299.00 }
   ];
 
   const merchant = merchants[Math.floor(Math.random() * merchants.length)];
